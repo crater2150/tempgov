@@ -1,27 +1,26 @@
-
 PROGNAME	= tempgov
 PREFIX		= /usr/local
-GARBAGE		=
-CFLAGS      = 
-LDFLAGS		= 
+CFLAGS          = -std=c99
 
-SRCDIR      = src
-OBJDIR      = build
+SRCDIR        = src
+BUILDDIR      = build
 
-.PHONY : all clean
+VPATH = src
 
-$(OBJDIR)%.o:$(SRCDIR)/%.c
+.PHONY : all clean install
+
+$(BUILDDIR)/%.o:%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-all: main
+all: $(PROGNAME)
 
-main: $(OBJDIR)/main.o
+$(PROGNAME): $(BUILDDIR)/tempgov.o 
 	gcc -o $@ $^ $(CFLAGS) $(LDFLAGS)
 
 clean:
 	rm $(GARBAGE)
 
 install: $(PROGNAME)
-	mkdir -vp $(PREFIX)/bin
-	cp -v $(PROGNAME) $(PREFIX)/bin
+	install -d $(PREFIX)/bin
+	install $(PROGNAME) $(PREFIX)/bin
 
