@@ -1,0 +1,19 @@
+#!/sbin/runscript
+
+depend() {
+	after modules
+} 
+
+start() {
+	ebegin "Starting Temperature Governor" 
+	start-stop-daemon --start --quiet --exec /usr/local/bin/tempgov \
+		--pidfile /var/run/tempgov
+	eend $?
+}
+
+stop() {
+	ebegin "Stopping Temperature Governor"
+	start-stop-daemon --stop --quiet --exec /usr/local/bin/tempgov \
+		--pidfile /var/run/tempgov
+	eend $? 
+}
