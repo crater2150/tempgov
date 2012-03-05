@@ -1,98 +1,33 @@
 #define _GNU_SOURCE
 
-#include <string.h>
-#include <stdio.h>
 #include <glob.h>
-#include <unistd.h>
+#include <stdio.h>
 #include <stdlib.h>
-#include <signal.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/file.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <errno.h>
+#include <string.h>
 #include <syslog.h>
+#include <unistd.h>
 
-#define SYS_GLOB_CPUS  "/sys/devices/system/cpu/cpu?/cpufreq/scaling_governor"
-#define SYS_THERMAL    "/sys/devices/virtual/thermal/thermal_zone0/temp"
+#include "constants.h"
+#include "tempgov.h"
 
-#define GOV_DEFAULT    "ondemand"
-#define GOV_HIGHTEMP   "powersave"
+#define GOV_UNKNOWN         -1
+#define GOV_NOCHANGE        0
+#define GOV_CHANGE_HIGHTEMP 1
+#define GOV_CHANGE_DEFAULT  2
 
-#define SYSLOG_IDENT   "tempgov"
-#define SYSLOG_FORMAT  "Switching to governor \"%s\""
+static FILE** govhandles;
 
-#define PIDFILE_PATH   "/var/run/tempgov.pid"
+static int set_governor(const int target_governor);
+static int check_temp_limits(const int temp);
+static int read_temp();
+static int tempgov();
 
-#define MSG_RUNNING    "Another tempgov instance is running already\n"
-#define MSG_STARTING   "Starting temperature supervising"
-
-#define FMT_MSG_ADD_CPU "Adding CPU: %s"
-
-#define CHECK_FREQUENCY  8
-#define TEMP_THRESHOLD   92000
-static void setgov(const char* governor);
-static void cleanup(int signal);
-static char* tempgov();
-FILE** govhandles;
-int pidfile_fd;
-FILE* pidfile;
-
-int main(int argc, char* argv[])
+int init_tempgov()
 {
-
-	pid_t pid, sid;
-
-	pidfile_fd = open(PIDFILE_PATH, O_WRONLY | O_CREAT);
-	int lock_success = flock(pidfile_fd, LOCK_EX | LOCK_NB);
-
-	if(lock_success == -1) {
-		if(errno == EWOULDBLOCK) {
-			printf(MSG_RUNNING);
-		} else {
-			perror("PID file locking failed");
-		}
-		exit(EXIT_FAILURE);
-	}
-
-	ftruncate(pidfile_fd, 0);
-
-	pidfile = fdopen(pidfile_fd, "w");
-
-
-	pid = fork();
-	if (pid < 0) {
-		exit(EXIT_FAILURE);
-	}
-	if (pid > 0) {
-		exit(EXIT_SUCCESS);
-	}
-	umask(0);
-
-	sid = setsid();
-	if (sid < 0) {
-		exit(EXIT_FAILURE);
-	}
-
-	if ((chdir("/")) < 0) {
-		exit(EXIT_FAILURE);
-	}
-
-	pid_t ownpid = getpid();
-	fprintf(pidfile, "%d\n", (int) ownpid);
-
-	close(STDIN_FILENO);
-	close(STDOUT_FILENO);
-	close(STDERR_FILENO);
-
-	openlog(SYSLOG_IDENT, 0, LOG_DAEMON);
-
 	glob_t pglob;
 	int globerr;
 	if ((globerr = glob(SYS_GLOB_CPUS, 0, NULL, &pglob)) != 0) {
-		syslog(LOG_ERR, "Glob error.");
-		return 1;
+		return globerr;
 	}
 
 	govhandles = malloc(sizeof(FILE*) * pglob.gl_pathc + 1);
@@ -102,59 +37,84 @@ int main(int argc, char* argv[])
 	}
 	govhandles[pglob.gl_pathc] = NULL;
 	globfree(&pglob);
-
-	signal(15, &cleanup);
-
-	syslog(LOG_INFO,MSG_STARTING);
-	while(1) {
-		sleep(8);
-		char* gov = tempgov();
-		if(gov != NULL) {
-			syslog(LOG_NOTICE, SYSLOG_FORMAT, gov);
-			free(gov);
-		}
-	}
-
 	return 0;
 }
 
-void cleanup(int signal)
+void cleanup_governor()
 {
 	for(FILE** i = govhandles;*i != NULL; i++) {
 		fclose(*i);
 	}
-	flock(pidfile_fd, LOCK_UN);
-	fclose(pidfile);
-
 }
-static void setgov(const char* governor)
+
+void tempgov_main_loop(const int interval)
 {
+	while(1) {
+		sleep(interval);
+		switch(tempgov()) {
+			case GOV_CHANGE_HIGHTEMP:
+				syslog(LOG_NOTICE, SYSLOG_FORMAT, GOV_HIGHTEMP);
+			case GOV_CHANGE_DEFAULT:
+				syslog(LOG_NOTICE, SYSLOG_FORMAT, GOV_DEFAULT);
+		}
+	}
+}
+
+static int set_governor(const int target_governor)
+{
+	//ensure the governor is set at first reading
+	static int current_governor = GOV_UNKNOWN;
+
+	if(target_governor == current_governor) {
+		return GOV_NOCHANGE;
+	}
+
+	char* governor_name;
+	if(target_governor == GOV_CHANGE_HIGHTEMP) {
+		governor_name = strdup(GOV_HIGHTEMP);
+	} else if(target_governor == GOV_CHANGE_DEFAULT) {
+		governor_name = strdup(GOV_DEFAULT);
+	} else {
+		return GOV_NOCHANGE;
+	}
+
 	for(FILE** i = govhandles;*i != NULL; i++) {
 		rewind(*i);
-		fwrite(governor, sizeof(char), strlen(governor), *i);
+		fwrite(governor_name, sizeof(char), strlen(governor_name), *i);
+	}
+
+	return current_governor = target_governor;
+}
+
+static int check_temp_limits(const int temp)
+{
+	if(temp > TEMP_HIGH_THRESHOLD) {
+		return GOV_CHANGE_HIGHTEMP;
+	} else if(temp < TEMP_COOLDOWN_THRESHOLD) {
+		return GOV_CHANGE_DEFAULT;
+	} else {
+		return GOV_NOCHANGE;
 	}
 }
 
-static char* tempgov()
+static int read_temp()
 {
-	static _Bool on_hightemp = 0;
 	FILE* systemp = fopen(SYS_THERMAL, "r");
-	char tempc[7];
-	tempc[6] = '\0';
-	fread(tempc, sizeof(char), 6, systemp);
+	char tempc[10];
+	fgets(tempc, 10, systemp);
 	fclose(systemp);
+	return atoi(tempc);
+}
 
-	char* changed = NULL;
+static int tempgov()
+{
 
-	int temp = atoi(tempc);
-	if(temp > TEMP_THRESHOLD && ! on_hightemp) {
-		setgov(GOV_HIGHTEMP);
-		changed = strdup(GOV_HIGHTEMP);
-		on_hightemp = 1;
-	} else if(on_hightemp) {
-		setgov(GOV_DEFAULT);
-		changed = strdup(GOV_DEFAULT);
-		on_hightemp = 0;
+	int target_state = check_temp_limits(read_temp());
+
+	if(target_state != GOV_NOCHANGE) {
+		set_governor(target_state);
+		return(target_state);
 	}
-	return changed;
+
+	return GOV_NOCHANGE;
 }

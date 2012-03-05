@@ -1,26 +1,32 @@
 PROGNAME	= tempgov
 PREFIX		= /usr/local
-CFLAGS          = -std=c99
+CFLAGS          = -std=c99 -D_POSIX_C_SOURCE=200809L
 
 SRCDIR        = src
-BUILDDIR      = build
+OBJDIR        = build
+
+SRCFILES=$(wildcard $(SRCDIR)/*.c)
+HEADERS=$(wildcard $(SRCDIR)/*.h)
+OBJFILES=$(patsubst $(SRCDIR)/%.c, $(OBJDIR)/%.o, $(SRCFILES))
 
 VPATH = src
 
-.PHONY : all clean install
+.PHONY : all clean install tests
 
-$(BUILDDIR)/%.o:%.c
+$(OBJDIR)/%.o:%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 all: $(PROGNAME)
 
-$(PROGNAME): $(BUILDDIR)/tempgov.o 
-	gcc -o $@ $^ $(CFLAGS) $(LDFLAGS)
+$(PROGNAME): $(OBJFILES)
+	$(CC) $(LDFLAGS) $(OBJFILES) -o $@
 
 clean:
-	rm $(GARBAGE)
+	rm $(OBJFILES) $(PROGNAME)
 
 install: $(PROGNAME)
 	install -d $(PREFIX)/bin
 	install $(PROGNAME) $(PREFIX)/bin
 
+tests:
+	cd tests && make
