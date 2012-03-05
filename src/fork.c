@@ -59,6 +59,7 @@ static void pidfile_write_lock()
 
 	pid_t ownpid = getpid();
 	fprintf(pidfile, "%d\n", (int) ownpid);
+	fflush(pidfile);
 }
 
 static void do_fork()
