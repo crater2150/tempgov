@@ -6,11 +6,17 @@
 #include "constants.h"
 #include "fork.h"
 #include "tempgov.h"
+#include "opts.h"
 
 static void cleanup(int signal);
 
 int main(int argc, char* argv[])
 {
+	int code;
+	if(code = parse_args(argc,argv) > -1) {
+		return code;
+	}
+
 	daemonize();
 
 	openlog(SYSLOG_IDENT, 0, LOG_DAEMON);
@@ -33,7 +39,7 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	tempgov_main_loop(CHECK_FREQUENCY);
+	tempgov_main_loop(opt_interval);
 
 	return 0;
 }

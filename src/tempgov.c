@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "constants.h"
+#include "opts.h"
 #include "tempgov.h"
 
 #define GOV_UNKNOWN         -1
@@ -26,7 +27,7 @@ int init_tempgov()
 {
 	glob_t pglob;
 	int globerr;
-	if ((globerr = glob(SYS_GLOB_CPUS, 0, NULL, &pglob)) != 0) {
+	if ((globerr = glob(opt_sysfs_cpus, 0, NULL, &pglob)) != 0) {
 		return globerr;
 	}
 
@@ -53,9 +54,13 @@ void tempgov_main_loop(const int interval)
 		sleep(interval);
 		switch(tempgov()) {
 			case GOV_CHANGE_HIGHTEMP:
-				syslog(LOG_NOTICE, SYSLOG_FORMAT, GOV_HIGHTEMP);
+				syslog(LOG_NOTICE, SYSLOG_FORMAT,
+						opt_hightemp_governor);
+				break;
 			case GOV_CHANGE_DEFAULT:
-				syslog(LOG_NOTICE, SYSLOG_FORMAT, GOV_DEFAULT);
+				syslog(LOG_NOTICE, SYSLOG_FORMAT,
+						opt_default_governor);
+				break;
 		}
 	}
 }
@@ -71,9 +76,9 @@ static int set_governor(const int target_governor)
 
 	char* governor_name;
 	if(target_governor == GOV_CHANGE_HIGHTEMP) {
-		governor_name = strdup(GOV_HIGHTEMP);
+		governor_name = strdup(opt_hightemp_governor);
 	} else if(target_governor == GOV_CHANGE_DEFAULT) {
-		governor_name = strdup(GOV_DEFAULT);
+		governor_name = strdup(opt_default_governor);
 	} else {
 		return GOV_NOCHANGE;
 	}
@@ -88,9 +93,9 @@ static int set_governor(const int target_governor)
 
 static int check_temp_limits(const int temp)
 {
-	if(temp > TEMP_HIGH_THRESHOLD) {
+	if(temp > opt_threshold_hightemp) {
 		return GOV_CHANGE_HIGHTEMP;
-	} else if(temp < TEMP_COOLDOWN_THRESHOLD) {
+	} else if(temp < opt_threshold_cooldown) {
 		return GOV_CHANGE_DEFAULT;
 	} else {
 		return GOV_NOCHANGE;
@@ -99,7 +104,7 @@ static int check_temp_limits(const int temp)
 
 static int read_temp()
 {
-	FILE* systemp = fopen(SYS_THERMAL, "r");
+	FILE* systemp = fopen(opt_sysfs_thermal, "r");
 	char tempc[10];
 	fgets(tempc, 10, systemp);
 	fclose(systemp);

@@ -8,6 +8,7 @@
 
 #include "constants.h"
 #include "fork.h"
+#include "opts.h"
 
 static void pidfile_check_lock();
 static void do_fork();
@@ -18,7 +19,7 @@ static FILE* pidfile;
 
 void daemonize()
 {
-	pidfile_fd = creat(PIDFILE_PATH, 0);
+	pidfile_fd = creat(opt_pidfile, 0);
 	if(pidfile_fd == -1) {
 		perror(MSG_ERR_PID_CREAT);
 		exit(EXIT_FAILURE);

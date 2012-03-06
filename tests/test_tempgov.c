@@ -10,13 +10,11 @@
 #include <sys/types.h>
 
 #include "test_tempgov.h"
+#include "../src/opts.h"
 
+
+#include "../src/defaults.h"
 #include "../src/constants.h"
-#undef SYS_GLOB_CPUS
-#undef SYS_THERMAL
-#define SYS_GLOB_CPUS      "/tmp/test_cpu"
-#define SYS_THERMAL        "/tmp/test_temp"
-
 #include "../src/tempgov.c"
 
 #define TEST_TEMP_LOW (TEMP_COOLDOWN_THRESHOLD - 5)
@@ -45,15 +43,15 @@ static void test_setup_files()
 {
 
 	//create pseudo governor control file
-	govhandle = fopen(SYS_GLOB_CPUS, "w+");
+	govhandle = fopen(opt_sysfs_cpus, "w+");
 	CU_ASSERT_PTR_NOT_NULL(govhandle);
-	fputs(GOV_DEFAULT, govhandle);
+	fputs(opt_default_governor, govhandle);
 	fflush(govhandle);
 
 	char* temp = itoa(TEST_TEMP_MEDIUM);
 
 	//create pseudo temperature file
-	temphandle = fopen(SYS_THERMAL, "w+");
+	temphandle = fopen(opt_sysfs_thermal, "w+");
 	CU_ASSERT_PTR_NOT_NULL(temphandle);
 	fputs(temp, temphandle);
 	fflush(govhandle);
@@ -77,21 +75,21 @@ static void test_glob_and_open()
 
 static void test_setting_of_governor()
 {
-	cu_assert_file_contains(govhandle, GOV_DEFAULT);
+	cu_assert_file_contains(govhandle, opt_default_governor);
 
 	// tempgov should set governor to default on first call, even if it is
 	// set already.
 	CU_ASSERT_EQUAL(GOV_CHANGE_HIGHTEMP, set_governor(GOV_CHANGE_HIGHTEMP));
-	cu_assert_file_contains(govhandle, GOV_HIGHTEMP);
+	cu_assert_file_contains(govhandle, opt_hightemp_governor);
 
 	// after initial setting, no change shall occur, when same governor is
 	// requested
 	CU_ASSERT_EQUAL(GOV_NOCHANGE, set_governor(GOV_CHANGE_HIGHTEMP));
-	cu_assert_file_contains(govhandle, GOV_HIGHTEMP);
+	cu_assert_file_contains(govhandle, opt_hightemp_governor);
 
 	// setting another governor should cause a write
 	CU_ASSERT_EQUAL(GOV_CHANGE_DEFAULT, set_governor(GOV_CHANGE_DEFAULT));
-	cu_assert_file_contains(govhandle, GOV_HIGHTEMP);
+	cu_assert_file_contains(govhandle, opt_default_governor);
 }
 
 static void test_temperature_reading()
@@ -121,36 +119,41 @@ static void test_tempgov()
 	char* high_temp = itoa(TEST_TEMP_HIGH);
 	char* low_temp = itoa(TEST_TEMP_LOW);
 	set_governor(GOV_CHANGE_DEFAULT);
-	cu_assert_file_contains(govhandle, GOV_DEFAULT);
+	cu_assert_file_contains(govhandle, opt_default_governor);
 
 	// governor is correct for current temperature
 	// tempgov should not do anything
 	file_replace(temphandle, med_temp);
 	cu_assert_file_contains(temphandle, med_temp);
 	CU_ASSERT_EQUAL(tempgov(), GOV_NOCHANGE);
-	cu_assert_file_contains(govhandle, GOV_DEFAULT);
+	cu_assert_file_contains(govhandle, opt_default_governor);
 
 	// governor should switch on high temparature
 	file_replace(temphandle, high_temp);
 	cu_assert_file_contains(temphandle, high_temp);
 	CU_ASSERT_EQUAL(tempgov(), GOV_CHANGE_HIGHTEMP);
-	cu_assert_file_contains(govhandle, GOV_HIGHTEMP);
+	cu_assert_file_contains(govhandle, opt_hightemp_governor);
 
 	// governor should not switch until low threshold is reached
 	file_replace(temphandle, med_temp);
 	cu_assert_file_contains(temphandle, med_temp);
 	CU_ASSERT_EQUAL(tempgov(), GOV_NOCHANGE);
-	cu_assert_file_contains(govhandle, GOV_HIGHTEMP);
+	cu_assert_file_contains(govhandle, opt_hightemp_governor);
 
 	// governor should switch back after cooldown
 	file_replace(temphandle, low_temp);
 	cu_assert_file_contains(temphandle, low_temp);
 	CU_ASSERT_EQUAL(tempgov(), GOV_CHANGE_DEFAULT);
-	cu_assert_file_contains(govhandle, GOV_DEFAULT);
+	cu_assert_file_contains(govhandle, opt_default_governor);
 }
 
 void test_tempgov_init()
 {
+	parse_opts(0, NULL);
+
+	opt_sysfs_cpus = strdup("/tmp/test_cpu");
+	opt_sysfs_thermal = strdup("/tmp/test_temp");
+
 	CU_pSuite pSuite = NULL;
 
 	pSuite = CU_add_suite(__FILE__, NULL, NULL);
