@@ -1,10 +1,14 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "constants.h"
 #include "defaults.h"
 #include "opts.h"
+
+//non ascii options
+#define VAL_HELP 0x100
 
 // set defaults
 char* opt_sysfs_thermal = NULL;
@@ -15,6 +19,8 @@ char* opt_pidfile = NULL;
 int opt_threshold_cooldown = TEMP_COOLDOWN_THRESHOLD;
 int opt_threshold_hightemp = TEMP_HIGH_THRESHOLD;
 int opt_interval = CHECK_FREQUENCY;
+
+void show_help(const struct option long_options[], const char* descriptions[]);
 
 short parse_args(int argc, char* argv[])
 {
@@ -33,7 +39,21 @@ short parse_args(int argc, char* argv[])
 		{"low-threshold",  required_argument, NULL, 'l'},
 		{"high-threshold", required_argument, NULL, 'h'},
 		{"interval",       required_argument, NULL, 'i'},
+		{"help",           no_argument,       NULL, VAL_HELP},
 		{0, 0, 0, 0}
+	};
+	const char* descriptions[] = {
+		"File to read system temperature from",
+		"File, where the governor name should be written."
+			"Glob patterns are allowed.",
+		"Governor to use under normal conditions",
+		"Governor to use, when temperature is high", 
+		"Where to write the PID file",
+		"Clock down above this temperature",
+		"Return to default, when falling below this temperature",
+		"Seconds between temperature readings",
+		"Show help",
+		NULL
 	};
 	char options[] = "t:c:d:g:p:l:h:i:";
 
@@ -66,9 +86,13 @@ short parse_args(int argc, char* argv[])
 				break;
 			case 'h':
 				opt_threshold_hightemp = atoi(optarg);
+				break;
 			case 'i':
 				opt_interval = atoi(optarg);
 				break;
+			case VAL_HELP:
+				show_help(long_options, descriptions);
+				return 0;
 			default:
 				return 1;
 				break;;
@@ -76,4 +100,23 @@ short parse_args(int argc, char* argv[])
 	}
 
 	return -1;
+}
+
+void show_help(const struct option long_options[], const char* descriptions[])
+{
+	printf("Usage: tempgov [opts]\n\nOptions:\n");
+	int i = 0;
+	for(;long_options[i].name != 0; i++) {
+		if(long_options[i].val > 'z') {
+			printf("  --%-16s       %s\n",
+					long_options[i].name,
+					descriptions[i]);
+
+		} else {
+			printf("  --%-16s  -%c   %s\n",
+					long_options[i].name,
+					long_options[i].val,
+					descriptions[i]);
+		}
+	}
 }
